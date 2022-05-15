@@ -1,0 +1,337 @@
+---
+title: "UniversalBank数据集分析"
+author: "821211067董钱斌"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 1.环球银行介绍
+
+::: {align="center"}
+![avatar](C:/Users/Jayson/Desktop/picture1.png)
+:::
+
+  环球银行（中文：环球银行）是一家在美国的华侨银行。该银行总部位于加利福尼亚州西科维纳，在加利福尼亚州阿卡迪亚、加利福尼亚州洛杉矶鹰岩、加利福尼亚州蒙特利公园、加利福尼亚州奥兰治和加利福尼亚州罗斯米德设有分支机构，于 1954 年 11 月 17 日首次成立，是一家私营银行。\
+  环球银行最近专注于为当地社区的华人/亚裔移民提供抵押贷款和其他房地产融资，跟随他们到传统住宅区以外的地区，成为洛杉矶少数几家涉足的海外华人银行之一加利福尼亚州奥兰治县。\
+
+# 2.数据集介绍以及研究目的
+
+  UniversalBank.csv数据集包括了5000个贷款申请的信息。响应变量是提供的贷款是否在早些场合中被接受。解释变量包括：\
+  消费者的年龄；\
+  经验：几年的专业经验；\
+  消费者的收入水平；\
+  消费者的家族人数；\
+  CCAvg：信用卡月平均消费；\
+  Mortgage：按揭数目；   证券账户：否/是；\
+  定期存款：否/是；   在线：否/是；\
+  信用卡：否/是；\
+  教育水平：三种类别(大学生、研究生、专家)。\
+  通过对数据集进行探究，发掘出有意愿接受贷款的新客户。
+
+# 3.数据集描述性分析
+
+  导入数据集。
+
+```{r}
+library(ada)
+attr = c('id', 'age', 'exp', 'inc', 'zip', 'family', 
+         'ccavg', 'edu', 'mortgage', 'loan', 
+         'securities', 'cd', 'online', 'cc')
+data = read.csv(file = "C:/Users/Jayson/Desktop/R软件在金融定量分析中的应用/UniversalBank.csv", header = TRUE, col.names = attr)
+```
+
+  查看各个变量的最小值、最大值、中位数以及二分位、四分位数
+
+```{r}
+summary(data)
+```
+
+  画出各个变量之间的相关性热力图。
+
+```{r}
+cor<- cor(data)
+cor
+```
+
+```{r}
+library(corrplot)
+corrplot(cor, order = "hclust",method = "color",
+cl.length=5,addgrid.col="white",cl.pos = "r",
+addCoef.col="black",number.cex=0.6,number.digits=1,number.font=1,
+tl.col="black",tl.cex = 0.8,cl.ratio = 0.2)
+```
+
+  从图中可以看出，收入与信用卡月平均消费存在一定的相关，其变量之间的相关性并不显著。
+
+# 4.数据预处理
+
+  去除id、zipid、experience这些特征变量
+
+```{r}
+drop_Attr = c("id", "zip", "exp")
+attr = setdiff(attr, drop_Attr)
+data = data[, attr]
+rm(drop_Attr)
+```
+
+  将一些特征变量的属性转换为适当的类型
+
+```{r}
+cat_Attr = c("family", "edu", "securities", "cd", "online", "cc", "loan")
+num_Attr = setdiff(attr, cat_Attr)
+cat_Data = data.frame(sapply(data[,cat_Attr], as.factor))
+num_Data = data.frame(sapply(data[,num_Attr], as.numeric))
+```
+
+  将数值型特征变量转化为分类变量
+
+```{r}
+library(infotheo)
+num_2_Cat_Data = data.frame(sapply(data[,num_Attr],  
+                                   function(x){discretize(x, disc = "equalfreq", 
+                                                          nbins = 4)}))
+names(num_2_Cat_Data) = num_Attr
+
+num_2_Cat_Data = data.frame(sapply(num_2_Cat_Data, as.factor))
+
+data = cbind(num_2_Cat_Data, cat_Data)
+rm(cat_Data, num_Data, num_2_Cat_Data, cat_Attr, num_Attr)
+```
+
+  进行汇总统计并检查缺失值和异常值。
+
+```{r}
+summary(data)
+```
+
+# 5.将数据集划分为训练集和验证集
+
+```{r}
+ind_Attr = setdiff(attr, "loan")
+rm(attr)
+```
+
+```{r}
+set.seed(123)
+train_RowIDs = sample(1:nrow(data), nrow(data)*0.7)
+train_Data = data[train_RowIDs,]
+test_Data = data[-train_RowIDs,]
+rm(train_RowIDs)
+```
+
+  查看目标属性的拆分过程
+
+```{r}
+table(data$loan)
+table(train_Data$loan)
+table(test_Data$loan)
+rm(data)
+```
+
+# 6.集成学习
+
+## 6.1模型构建
+
+  在训练数据集上构建 CART 模型\
+  Classification And Regression Trees(CART), 分类和回归树(CART)是一种预测模型，它解释了如何根据其他值预测结果变量的值。CART输出是一棵决策树，其中每个分叉都是预测变量中的一个拆分，每个末端节点都包含对结果变量的预测。
+
+```{r}
+library(rpart)
+cart_Model = rpart(loan ~ ., train_Data, method = "class")
+summary(cart_Model)
+par(pin = c(5,5))
+dev.off()
+plot(cart_Model)
+text(cart_Model)
+```
+
+  CART模型以inc收入为第一分类节点，教育水平为第二分类节点。\
+  在训练数据集上构建 C5.0 模型\
+  C5.0是决策树模型中的算法，79年由J R Quinlan发展，并提出了ID3算法，主要针对离散型属性数据，其后又不断的改进，形成C4.5，它在ID3基础上增加了队连续属性的离散化。C5.0是C4.5应用于大数据集上的分类算法，主要在执行效率和内存使用方面进行了改进。
+
+```{r}
+library(C50)
+train_Data$loan <- factor(train_Data$loan)
+c50_Model = C5.0(loan ~ ., train_Data, rules = T)
+summary(c50_Model)
+```
+
+  应用逻辑回归
+
+```{r}
+train_Data$loan <- factor(train_Data$loan)
+glm_Model = glm(loan ~ ., train_Data, family = binomial)
+summary(glm_Model)
+```
+
+## 6.2基于训练集的预测效果
+
+  采用CART模型
+
+```{r}
+cart_Train = predict(cart_Model, train_Data, type = "vector") 
+table(cart_Train)
+```
+
+```{r}
+cart_Train = ifelse(cart_Train == 1, 0, 1)
+table(cart_Train)
+```
+
+  CART模型中，训练集中有贷款意愿的人数为313人，无贷款意愿的人数为3187人。\
+  采用C5.0模型
+
+```{r}
+c50_Train = predict(c50_Model, train_Data, type = "class")
+c50_Train = as.vector(c50_Train)
+table(c50_Train)
+```
+
+  CART模型中，训练集中有贷款意愿的人数为299人，无贷款意愿的人数为3201人。\
+  采用GLM模型
+
+```{r}
+glm_Train = predict(glm_Model, train_Data, type = "response")
+glm_Train = ifelse(glm_Train > 0.5, 1, 0) 
+table(glm_Train)
+```
+
+  CART模型中，训练集中有贷款意愿的人数为249人，无贷款意愿的人数为3251人。\
+  将这些模型综合在一起
+
+```{r}
+train_Pred_All_Models = data.frame(CART = cart_Train, 
+                                   C50 = c50_Train,
+                                   GLM = glm_Train)
+train_Pred_All_Models = data.frame(sapply(train_Pred_All_Models, as.factor))
+```
+
+```{r}
+str(train_Pred_All_Models)
+summary(train_Pred_All_Models)
+rm(cart_Train, glm_Train, c50_Train)
+```
+
+  查看各个模型的预测
+
+```{r}
+table(train_Pred_All_Models$CART)
+table(train_Pred_All_Models$C50)
+table(train_Pred_All_Models$GLM)
+table(train_Data$loan)
+```
+
+  将原始的DV加入到数据框中
+
+```{r}
+train_Pred_All_Models = cbind(train_Pred_All_Models, loan = train_Data$loan)
+```
+
+  使用 GLM 作为元学习器的集成模型
+
+```{r}
+str(train_Pred_All_Models)
+head(train_Pred_All_Models)
+
+```
+
+```{r}
+ensemble_Model = glm(loan ~ ., train_Pred_All_Models, family = binomial)
+summary(ensemble_Model)
+```
+
+  查看训练数据上的ensemble_Model 模型
+
+```{r}
+ensemble_Train = predict(ensemble_Model, train_Pred_All_Models, 
+                         type = "response")
+ensemble_Train = ifelse(ensemble_Train > 0.5, 1, 0)
+table(ensemble_Train)
+```
+
+```{r}
+cm_Ensemble = table(ensemble_Train, train_Pred_All_Models$loan)
+sum(diag(cm_Ensemble))/sum(cm_Ensemble)
+```
+
+## 6.3基于测试集的预测效果
+
+  CART模型
+
+```{r}
+cart_Test = predict(cart_Model, test_Data, type="vector")
+cart_Test = ifelse(cart_Test == 1, 0, 1)
+
+cm_CART = table(cart_Test, test_Data$loan)
+sum(diag(cm_CART))/sum(cm_CART)
+```
+
+  C5.0模型
+
+```{r}
+c50_Test = predict(c50_Model, test_Data, type = "class")
+c50_Test = as.vector(c50_Test)
+
+cm_C50 = table(c50_Test, test_Data$loan)
+sum(diag(cm_C50))/sum(cm_C50)
+```
+
+  GLM模型
+
+```{r}
+glm_Test = predict(glm_Model, test_Data, type="response")
+glm_Test = ifelse(glm_Test > 0.5, 1, 0)
+
+cm_Glm = table(glm_Test, test_Data$loan)
+sum(diag(cm_Glm))/sum(cm_Glm)
+```
+
+  将这些模型综合在一起
+
+```{r}
+test_Pred_All_Models = data.frame(CART = cart_Test, 
+                                  C50 = c50_Test, 
+                                  GLM = glm_Test) 
+rm(cart_Test, c50_Test, glm_Test)
+
+test_Pred_All_Models = data.frame(sapply(test_Pred_All_Models, as.factor))
+str(test_Pred_All_Models)
+head(test_Pred_All_Models)
+```
+
+  查看训练数据上的glm_ensemble_Model 模型
+
+```{r}
+ensemble_Test = predict(ensemble_Model, test_Pred_All_Models, type = "response")
+ensemble_Test = ifelse(ensemble_Test > 0.5, 1, 0)
+table(ensemble_Test)
+```
+
+```{r}
+cm_Ensemble = table(ensemble_Test, test_Data$loan)
+sum(diag(cm_Ensemble))/sum(cm_Ensemble)
+```
+
+# 7.总结
+
+  对于这份数据集，本文采用了集成学习的方法。使用0级分类器中的3个模型和1级分类器中的1个模型完成。0级分类器是：使用 cart 方法的决策树；使用 C5.0 方法的决策树；使用 glm 方法的逻辑回归。1级分类器是：Logistic 回归\
+  1.将数据导入 R\
+  2.去除 ID，ZIP Code, exp\
+  3.将属性转换为适当的类型。\
+  4.使用等频将数字属性转换为分类。\
+  5.分成训练和测试。\
+  6.构建多个分类模型。\
+  7.对训练数据集进行预测。\
+  8. 结合所有模型的训练预测。\
+  9.查看每个模型的预测。\
+  10.将原始目标变量添加到数据集中。\
+  11.使用 GLM 作为元学习器集成模型。\
+  12.检查训练数据上的集成模型。\
+  13.按照测试数据的7到12的步骤，检查准确性。
